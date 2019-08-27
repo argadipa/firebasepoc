@@ -136,7 +136,7 @@ public class AuthManager : MonoBehaviour
         GoogleSignIn.Configuration = new GoogleSignInConfiguration
         {
             RequestIdToken = true,
-            WebClientId = "66234377928-2nfujjon3anmbbjng0cp05sg27vivj65.apps.googleusercontent.com"
+            WebClientId = "66234377928-p475e3snu11tn0iiprtnrrbkosh74p3g.apps.googleusercontent.com"
         };
 
         Task<GoogleSignInUser> signIn = GoogleSignIn.DefaultInstance.SignIn();
