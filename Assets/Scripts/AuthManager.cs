@@ -44,6 +44,8 @@ public class AuthManager : MonoBehaviour
         }
     }
 
+    
+
     private void CheckFirebaseDependencies()
     {
         Firebase.FirebaseApp
@@ -61,6 +63,59 @@ public class AuthManager : MonoBehaviour
                 {
                     Debug.LogError("Dependencies not found, " +dependencyStatus);
                 }
+            });
+    }
+
+    private static void SignInWithCredential(Credential credential, Action onSignedIn)
+    {
+        if (FD.auth == null)
+        {
+            Debug.Log("Auth not initialized yet. Cancelling login.");
+            return;
+        }
+
+        FD.auth
+            .SignInWithCredentialAsync(credential)
+            .ContinueWithOnMainThread(task =>
+            {
+                if (task.IsCanceled)
+                {
+                    Debug.LogError("Sign in with credential async cancelled.");
+                    return;
+                }
+                if (task.IsFaulted)
+                {
+                    Debug.Log("Sign in with credential sync ecnountered an error : " + task.Exception);
+                    return;
+                }
+
+                // To do when user successfully signed up
+                FD.user = task.Result;
+                Debug.LogFormat("User signed in successfully: {0} ({1})",
+                FD.user.DisplayName, FD.user.UserId);
+                FD.credential = credential;
+                onSignedIn.Invoke();
+            });
+    }
+
+    public static void LinkWithBaseCredential(Credential credential, Action onCredentialLinked)
+    {
+        FD.auth.CurrentUser
+            .LinkWithCredentialAsync(credential)
+            .ContinueWithOnMainThread(task =>
+            {
+                if (task.IsCanceled)
+                {
+                    Debug.Log("Linking credential canceled.");
+                }
+                if (task.IsFaulted)
+                {
+                    Debug.Log("Linking credential faulted. " + task.Exception);
+                }
+
+                FD.user = task.Result;
+                Debug.LogFormat("CustomRenderTextureInitializationSource successfully linke to firebase user {0} {1}", FD.user.DisplayName, FD.user.UserId);
+                onCredentialLinked.Invoke();
             });
     }
 
@@ -84,72 +139,47 @@ public class AuthManager : MonoBehaviour
                 FD.user = task.Result;
                 Debug.LogFormat("Firebase user created successfully: {0} ({1})",
                 FD.user.DisplayName, FD.user.UserId);
+
+                Credential credential = Firebase.Auth.EmailAuthProvider.GetCredential(email, password);
+
+                if(FD.credential == null)
+                {
+                    FD.credential = credential;    
+                }
+                else
+                {
+                    LinkWithBaseCredential(credential, () =>{
+                        onSignedUp.Invoke();
+                    });
+                }
                 onSignedUp.Invoke();
             });
     }
 
-    private static void SignInWithCredential(Credential credential, Action onSignedIn)
-    {
-        if(FD.auth == null)
-        {
-            Debug.Log("Auth not initialized yet. Cancelling login.");
-            return;
-        }
-
-        FD.auth
-            .SignInWithCredentialAsync(credential)
-            .ContinueWithOnMainThread(task => {
-                if (task.IsCanceled)
-                {
-                    Debug.LogError("Sign in with credential async cancelled.");
-                    return;
-                }
-                if (task.IsFaulted)
-                {
-                    Debug.Log("Sign in with credential sync ecnountered an error : " + task.Exception);
-                    return;
-                }
-
-                // To do when user successfully signed up
-                FD.user = task.Result;
-                Debug.LogFormat("User signed in successfully: {0} ({1})",
-                FD.user.DisplayName, FD.user.UserId);
-                onSignedIn.Invoke();
-                LinkWithBaseCredential(credential, () =>
-                {
-                    Debug.Log("Credential linked.");
-                });
-            });
-    }
-
-    public static void SignInWithEmailAndPasswordWithCredential(string email, string password, Action onSignedIn)
-    {
-        Credential credential = 
-        Firebase.Auth.EmailAuthProvider.GetCredential(email, password);
-        AuthManager.SignInWithCredential(credential, ()=> {
-            onSignedIn.Invoke();
-        });
-    }
-
     public static void SignUpWithGoogleWithCredential(Action onSignedIn)
     {
-        GoogleSignIn.Configuration = new GoogleSignInConfiguration
+
+        if (GoogleSignIn.Configuration == null)
         {
-            RequestIdToken = true,
-            WebClientId = "66234377928-p475e3snu11tn0iiprtnrrbkosh74p3g.apps.googleusercontent.com"
-        };
+            GoogleSignIn.Configuration = new GoogleSignInConfiguration
+            {
+                RequestIdToken = true,
+                WebClientId = "66234377928-p475e3snu11tn0iiprtnrrbkosh74p3g.apps.googleusercontent.com"
+            };
+        }
 
         Task<GoogleSignInUser> signIn = GoogleSignIn.DefaultInstance.SignIn();
 
         TaskCompletionSource<FirebaseUser> signInCompleted = new TaskCompletionSource<FirebaseUser>();
 
-        signIn.ContinueWith(task => {
-            if (task.IsCanceled) 
+        signIn.ContinueWith(task =>
+        {
+            if (task.IsCanceled)
             {
                 signInCompleted.SetCanceled();
                 return;
             }
-            if(task.IsFaulted)
+            if (task.IsFaulted)
             {
                 signInCompleted.SetException(task.Exception);
                 return;
@@ -158,18 +188,51 @@ public class AuthManager : MonoBehaviour
             Credential credential = Firebase.Auth.GoogleAuthProvider.GetCredential(((Task<GoogleSignInUser>)task).Result.IdToken, null);
             Debug.Log("Google credential retrieved.");
 
-            AuthManager.SignInWithCredential(credential, () => {
+            if(FD.credential == null)
+            {
+                AuthManager.SignInWithCredential(credential, () =>
+                {
+                    onSignedIn.Invoke();
+                });
+            }
+            else
+            {
+                LinkWithBaseCredential(credential, () => {
+                    onSignedIn.Invoke();
+                });
+            }
+        });
+    }
+
+    public static void SignInWithEmailAndPasswordWithCredential(string email, string password, Action onSignedIn)
+    {
+        Credential credential = 
+        Firebase.Auth.EmailAuthProvider.GetCredential(email, password);
+        if(FD.credential == null)
+        {
+            AuthManager.SignInWithCredential(credential, () =>
+            {
                 onSignedIn.Invoke();
             });
-        });
+        }
+        else
+        {
+            LinkWithBaseCredential(credential, () => {
+                onSignedIn.Invoke();
+            });
+        }
+        
     }
 
     public static void SignInWithGoogleWithCredential(Action onSignedIn)
     {
-        if(GoogleSignIn.Configuration == null)
+        if (GoogleSignIn.Configuration == null)
         {
-            Debug.Log("Sign in with Google failed. Please register with Google first.");
-            return;
+            GoogleSignIn.Configuration = new GoogleSignInConfiguration
+            {
+                RequestIdToken = true,
+                WebClientId = "66234377928-p475e3snu11tn0iiprtnrrbkosh74p3g.apps.googleusercontent.com"
+            };
         }
 
         Task<GoogleSignInUser> signIn = GoogleSignIn.DefaultInstance.SignIn();
@@ -191,39 +254,20 @@ public class AuthManager : MonoBehaviour
             // Get credential here
             Credential credential = Firebase.Auth.GoogleAuthProvider.GetCredential(((Task<GoogleSignInUser>)task).Result.IdToken, null);
 
-            AuthManager.SignInWithCredential(credential, () =>
+            if(FD.credential != null)
             {
-                onSignedIn.Invoke();
-            });
+                AuthManager.SignInWithCredential(credential, () =>
+                {
+                    onSignedIn.Invoke();
+                });
+            }
+            else
+            {
+                LinkWithBaseCredential(credential, ()=>{
+                    onSignedIn.Invoke();
+                });
+            }
         });
-    }
-
-    public static void LinkWithBaseCredential(Credential c, Action onCredentialLinked)
-    {
-
-        if(FD.credential == null)
-        {
-            Debug.Log("No credential existed. Adding new credential");
-            FD.credential = c;
-            return;
-        }
-
-        FD.auth.CurrentUser
-            .LinkWithCredentialAsync(c)
-            .ContinueWithOnMainThread(task => {
-                if(task.IsCanceled)
-                {
-                    Debug.Log("Linking credential canceled.");
-                }
-                if (task.IsFaulted)
-                {
-                    Debug.Log("Linking credential faulted. " +task.Exception);
-                }
-
-                FD.user = task.Result;
-                Debug.LogFormat("CustomRenderTextureInitializationSource successfully linke to firebase user {0} {1}", FD.user.DisplayName, FD.user.UserId);
-                onCredentialLinked.Invoke();
-            });
     }
 
     public static void SignOut()
@@ -234,5 +278,6 @@ public class AuthManager : MonoBehaviour
             return;
         }
         FD.auth.SignOut();
+        FirebaseAuth.DefaultInstance.SignOut();
     }
 }
